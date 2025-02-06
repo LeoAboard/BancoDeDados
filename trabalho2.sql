@@ -64,14 +64,14 @@ RETURNS TABLE(
     imc_ numeric(6,2),
     cidade_nasc_ varchar(50),
     uf_nasc_ varchar(2),
-    pais_nasc_ varchar(10),
+    pais_nasc_ varchar(25),
     cidade_res_ varchar(50),
     uf_res_ varchar(2),
-    pais_res_ varchar(10),
+    pais_res_ varchar(25),
     junta_ varchar(6),
     mun_junta_ varchar(50),
     uf_junta_ varchar(2),
-    pais_junta_ varchar(10),
+    pais_junta_ varchar(25),
     ano_alistamento_ int,
     situacao_ varchar(30)
 )
@@ -327,7 +327,13 @@ BEGIN
     CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
     ALTER TABLE junta_militar 
-        ALTER COLUMN junta TYPE BYTEA USING pgp_sym_encrypt(junta, 'senha123');
+        ALTER COLUMN junta TYPE BYTEA USING pgp_sym_encrypt(junta, 'senhajunta123');
+
+    ALTER TABLE unidade_federativa
+        ALTER COLUMN sigla TYPE BYTEA USING pgp_sym_encrypt(sigla, 'senhaestado123');
+
+    ALTER TABLE pais
+        ALTER COLUMN nome TYPE BYTEA USING pgp_sym_encrypt(nome, 'senhapais123');
 
     CREATE VIEW resumo_alistamento AS
     SELECT
@@ -340,15 +346,15 @@ BEGIN
     dados_corporais.altura_m,
     dados_corporais.imc,
     cn.nome as cidade_nasc,
-    ufn.sigla as uf_nasc,
-    pn.nome as pais_nasc,
+    pgp_sym_decrypt(ufn.sigla, 'senhaestado123')::varchar(2) as uf_nasc,
+    pgp_sym_decrypt(pn.nome, 'senhapais123')::varchar(25) as pais_nasc,
     cr.nome as cidade_res,
-    ufr.sigla as uf_res,
-    pr.nome as pais_res,
-    pgp_sym_decrypt(junta_militar.junta, 'senha123')::varchar(6) as junta,
+    pgp_sym_decrypt(ufr.sigla, 'senhaestado123')::varchar(2)  as uf_res,
+    pgp_sym_decrypt(pr.nome, 'senhapais123')::varchar(25) as pais_res,
+    pgp_sym_decrypt(junta_militar.junta, 'senhajunta123')::varchar(6) as junta,
     cj.nome as mun_junta,
-    ufj.sigla as uf_junta,
-    pj.nome as pais_junta,
+    pgp_sym_decrypt(ufj.sigla, 'senhaestado123')::varchar(2)  as uf_junta,
+    pgp_sym_decrypt(pj.nome, 'senhapais123')::varchar(25) as pais_junta,
     individuo.ano_alistamento,
     individuo.dispensa as situacao
     FROM individuo
@@ -372,22 +378,54 @@ $$ LANGUAGE plpgsql;
 
 --TESTE DE DESEMPENHO--
 
-/*CREATE OR REPLACE FUNCTION Fn_testa_desempenho()
-RETURNS TEXT
+CREATE OR REPLACE FUNCTION Fn_testa_desempenho()
+RETURNS VOID
 AS $$
 BEGIN
 
-    CREATE TABLE teste_desempenho(
-        nome varchar(30),
-        estado_civil varchar(25)
-        escolaridade varchar(50),
-        mun_nasc varchar(50),
-        mun_residencia varchar(50),
-        peso_kg int,
-        altura_m numeric(6,2)
-    )
+    CREATE TABLE nomes(
+        nome varchar(20)
+    );
 
-    EXPLAIN ANALYZE
+    INSERT INTO nomes
+    VALUES
+        ('Julia'),
+        ('Pedro'),
+        ('Miguel'),
+        ('João'),
+        ('Maria'),
+        ('Fulano');
+
+    CREATE TABLE teste_desempenho(
+        id int,
+        nome varchar(20),
+        mun_nasc varchar(50),
+        imc numeric(6,2)
+    );
+
+    INSERT INTO teste_desempenho(id, imc, mun_nasc, nome)
+        SELECT individuo.id, dados_corporais.imc, cn.nome, nomes.nome
+        FROM nomes, individuo
+        INNER JOIN dados_corporais ON individuo.id = dados_corporais.id_individuo
+        INNER JOIN cidade cn ON individuo.id_mun_nascimento = cn.id;
+
+END;    
+$$ LANGUAGE plpgsql;
+
+--EXECUÇÕES--
+
+\x
+SELECT * FROM Fn_cria_tabela();
+SELECT Fn_testa_desempenho();
+\x
+
+--EXPLAIN ANALYZE--
+
+EXPLAIN ANALYZE
+    SELECT min(id) FROM teste_desempenho;
     
-END;
-$$ LANGUAGE plpgsql;*/
+CREATE INDEX indice_td_id 
+    ON teste_desempenho(id);
+
+EXPLAIN ANALYZE
+    SELECT min(id) FROM teste_desempenho;
